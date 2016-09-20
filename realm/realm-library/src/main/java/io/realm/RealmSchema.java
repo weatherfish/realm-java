@@ -87,7 +87,7 @@ public final class RealmSchema {
         Set<RealmObjectSchema> schemas = new LinkedHashSet<>(tableCount);
         for (int i = 0; i < tableCount; i++) {
             String tableName = realm.sharedRealm.getTableName(i);
-            if (Table.isMetaTable(tableName)) {
+            if (!Table.isModelTable(tableName)) {
                 continue;
             }
             Table table = realm.sharedRealm.getTable(tableName);
@@ -274,10 +274,6 @@ public final class RealmSchema {
             dynamicClassToSchema.put(className, dynamicSchema);
         }
         return dynamicSchema;
-    }
-
-    void setColumnIndices(ColumnIndices columnIndices) {
-        this.columnIndices = columnIndices;
     }
 
     static String getSchemaForTable(Table table) {
