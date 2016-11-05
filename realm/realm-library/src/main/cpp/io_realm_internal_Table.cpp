@@ -615,26 +615,31 @@ JNIEXPORT jlong JNICALL Java_io_realm_internal_Table_nativeGetLinkTarget
     return 0;
 }
 
+JNIEXPORT jboolean JNICALL Java_io_realm_internal_Table_nativeIsNull
+        (JNIEnv*, jobject, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex)
+{
+    return TBL(nativeTablePtr)->is_null( S(columnIndex), S(rowIndex)) ? JNI_TRUE : JNI_FALSE;  // noexcept
+}
 
 // ----------------- Set cell
 
 JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeSetLink
-  (JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jlong targetRowIndex)
+  (JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jlong targetRowIndex, jboolean isDefault)
 {
     if (!TBL_AND_INDEX_AND_TYPE_INSERT_VALID(env, TBL(nativeTablePtr), columnIndex, rowIndex, type_Link))
         return;
     try {
-        TBL(nativeTablePtr)->set_link( S(columnIndex), S(rowIndex), S(targetRowIndex));
+        TBL(nativeTablePtr)->set_link( S(columnIndex), S(rowIndex), S(targetRowIndex), B(isDefault));
     } CATCH_STD()
 }
 
 JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeSetLong(
-    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jlong value)
+    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jlong value, jboolean isDefault)
 {
     if (!TBL_AND_INDEX_AND_TYPE_VALID(env, TBL(nativeTablePtr), columnIndex, rowIndex, type_Int))
         return;
     try {
-        TBL(nativeTablePtr)->set_int( S(columnIndex), S(rowIndex), value);
+        TBL(nativeTablePtr)->set_int( S(columnIndex), S(rowIndex), value, B(isDefault));
     } CATCH_STD()
 }
 
@@ -650,37 +655,37 @@ Java_io_realm_internal_Table_nativeSetLongUnique(JNIEnv *env, jclass, jlong nati
 }
 
 JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeSetBoolean(
-    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jboolean value)
+    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jboolean value, jboolean isDefault)
 {
     if (!TBL_AND_INDEX_AND_TYPE_VALID(env, TBL(nativeTablePtr), columnIndex, rowIndex, type_Bool))
         return;
     try {
-        TBL(nativeTablePtr)->set_bool( S(columnIndex), S(rowIndex), value == JNI_TRUE ? true : false);
+        TBL(nativeTablePtr)->set_bool( S(columnIndex), S(rowIndex), B(value), B(isDefault));
     } CATCH_STD()
 }
 
 JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeSetFloat(
-    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jfloat value)
+    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jfloat value, jboolean isDefault)
 {
     if (!TBL_AND_INDEX_AND_TYPE_VALID(env, TBL(nativeTablePtr), columnIndex, rowIndex, type_Float))
         return;
     try {
-        TBL(nativeTablePtr)->set_float( S(columnIndex), S(rowIndex), value);
+        TBL(nativeTablePtr)->set_float( S(columnIndex), S(rowIndex), value, B(isDefault));
     } CATCH_STD()
 }
 
 JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeSetDouble(
-    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jdouble value)
+    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jdouble value, jboolean isDefault)
 {
     if (!TBL_AND_INDEX_AND_TYPE_VALID(env, TBL(nativeTablePtr), columnIndex, rowIndex, type_Double))
         return;
     try {
-        TBL(nativeTablePtr)->set_double( S(columnIndex), S(rowIndex), value);
+        TBL(nativeTablePtr)->set_double( S(columnIndex), S(rowIndex), value, B(isDefault));
     } CATCH_STD()
 }
 
 JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeSetString(
-    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jstring value)
+    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jstring value, jboolean isDefault)
 {
     if (!TBL_AND_INDEX_AND_TYPE_VALID(env, TBL(nativeTablePtr), columnIndex, rowIndex, type_String))
         return;
@@ -691,7 +696,7 @@ JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeSetString(
             }
         }
         JStringAccessor value2(env, value); // throws
-        TBL(nativeTablePtr)->set_string( S(columnIndex), S(rowIndex), value2);
+        TBL(nativeTablePtr)->set_string( S(columnIndex), S(rowIndex), value2, B(isDefault));
     } CATCH_STD()
 }
 
@@ -706,20 +711,22 @@ Java_io_realm_internal_Table_nativeSetStringUnique(JNIEnv *env, jclass, jlong na
             if (!TBL_AND_COL_NULLABLE(env, TBL(nativeTablePtr), columnIndex)) {
                 return;
             }
+            TBL(nativeTablePtr)->set_string_unique(S(columnIndex), S(rowIndex), null{});
+        } else {
+            JStringAccessor value2(env, value); // throws
+            TBL(nativeTablePtr)->set_string_unique(S(columnIndex), S(rowIndex), value2);
         }
-        JStringAccessor value2(env, value); // throws
-        // FIXME: Check if we need to call set_null_unique when core support it.
-        TBL(nativeTablePtr)->set_string_unique(S(columnIndex), S(rowIndex), value2);
     } CATCH_STD()
 }
 
 JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeSetTimestamp(
-    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jlong timestampValue)
+    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jlong timestampValue, jboolean isDefault)
 {
     if (!TBL_AND_INDEX_AND_TYPE_VALID(env, TBL(nativeTablePtr), columnIndex, rowIndex, type_Timestamp))
         return;
     try {
-        TBL(nativeTablePtr)->set_timestamp( S(columnIndex), S(rowIndex), from_milliseconds(timestampValue));
+        TBL(nativeTablePtr)->set_timestamp( S(columnIndex), S(rowIndex), from_milliseconds(timestampValue),
+                                            B(isDefault));
     } CATCH_STD()
 }
 
@@ -736,7 +743,7 @@ JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeSetByteBuffer(
 */
 
 JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeSetByteArray(
-    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jbyteArray dataArray)
+    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jbyteArray dataArray, jboolean isDefault)
 {
     if (!TBL_AND_INDEX_AND_TYPE_VALID(env, TBL(nativeTablePtr), columnIndex, rowIndex, type_Binary))
         return;
@@ -746,12 +753,12 @@ JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeSetByteArray(
         }
 
         JniByteArray byteAccessor(env, dataArray);
-        TBL(nativeTablePtr)->set_binary(S(columnIndex), S(rowIndex), byteAccessor);
+        TBL(nativeTablePtr)->set_binary(S(columnIndex), S(rowIndex), byteAccessor, B(isDefault));
     } CATCH_STD()
 }
 
 JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeSetNull(
-    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex)
+    JNIEnv* env, jclass, jlong nativeTablePtr, jlong columnIndex, jlong rowIndex, jboolean isDefault)
 {
     Table* pTable = TBL(nativeTablePtr);
     if (!TBL_AND_COL_INDEX_VALID(env, pTable, columnIndex))
@@ -761,9 +768,26 @@ JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeSetNull(
     if (!TBL_AND_COL_NULLABLE(env, pTable, columnIndex))
         return;
     try {
-        pTable->set_null(S(columnIndex), S(rowIndex));
+        pTable->set_null(S(columnIndex), S(rowIndex), B(isDefault));
     } CATCH_STD()
 }
+
+JNIEXPORT void JNICALL
+Java_io_realm_internal_Table_nativeSetNullUnique(JNIEnv *env, jclass, jlong nativeTablePtr, jlong columnIndex,
+                                                 jlong rowIndex)
+{
+    Table* pTable = TBL(nativeTablePtr);
+    if (!TBL_AND_COL_INDEX_VALID(env, pTable, columnIndex))
+        return;
+    if (!TBL_AND_ROW_INDEX_VALID(env, pTable, rowIndex))
+        return;
+    if (!TBL_AND_COL_NULLABLE(env, pTable, columnIndex))
+        return;
+    try {
+        pTable->set_null_unique(S(columnIndex), S(rowIndex));
+    } CATCH_STD()
+}
+
 
 JNIEXPORT jlong JNICALL Java_io_realm_internal_Table_nativeGetRowPtr
   (JNIEnv* env, jobject, jlong nativeTablePtr, jlong index)
@@ -1384,13 +1408,13 @@ JNIEXPORT jboolean JNICALL Java_io_realm_internal_Table_nativeIsValid(
 JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeClose(
     JNIEnv* env, jclass, jlong nativeTablePtr)
 {
-    TR_ENTER_PTR(env, nativeTablePtr)
+    TR_ENTER_PTR(nativeTablePtr)
     LangBindHelper::unbind_table_ptr(TBL(nativeTablePtr));
 }
 
 JNIEXPORT jlong JNICALL Java_io_realm_internal_Table_createNative(JNIEnv *env, jobject)
 {
-    TR_ENTER(env)
+    TR_ENTER()
     try {
         return reinterpret_cast<jlong>(LangBindHelper::new_table());
     } CATCH_STD()
@@ -1478,7 +1502,7 @@ JNIEXPORT jlong JNICALL Java_io_realm_internal_Table_nativeSetPrimaryKey(
                 // No primary key is currently set
                 if (check_valid_primary_key_column(env, table, new_primary_key_column_name)) {
                     row_index = pk_table->add_empty_row();
-                    pk_table->set_string(io_realm_internal_Table_PRIMARY_KEY_CLASS_COLUMN_INDEX, row_index, table_name);
+                    pk_table->set_string_unique(io_realm_internal_Table_PRIMARY_KEY_CLASS_COLUMN_INDEX, row_index, table_name);
                     pk_table->set_string(io_realm_internal_Table_PRIMARY_KEY_FIELD_COLUMN_INDEX, row_index, new_primary_key_column_name);
                 }
             }
@@ -1511,17 +1535,23 @@ JNIEXPORT jlong JNICALL Java_io_realm_internal_Table_nativeSetPrimaryKey(
 // - All Realms created by Cocoa and used by Realm-android up to 0.84.1
 // - All Realms created by Realm-Android 0.84.1 and below
 // See https://github.com/realm/realm-java/issues/1703
+//
+// 3> PK table's column 'pk_table' needs search index in order to use set_string_unique.
+// This affects:
+// - All Realms created by Cocoa and used by Realm-java before 2.0.0
+// See https://github.com/realm/realm-java/pull/3488
 
 // This methods converts the old (wrong) table format (string, integer) to the right (string,string) format and strips
 // any class names in the col[0] of their "class_" prefix
-JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeMigratePrimaryKeyTableIfNeeded
-    (JNIEnv*, jobject, jlong groupNativePtr, jlong privateKeyTableNativePtr)
+JNIEXPORT jboolean JNICALL Java_io_realm_internal_Table_nativeMigratePrimaryKeyTableIfNeeded
+    (JNIEnv*, jclass, jlong groupNativePtr, jlong privateKeyTableNativePtr)
 {
     const size_t CLASS_COLUMN_INDEX = io_realm_internal_Table_PRIMARY_KEY_CLASS_COLUMN_INDEX;
     const size_t FIELD_COLUMN_INDEX = io_realm_internal_Table_PRIMARY_KEY_FIELD_COLUMN_INDEX;
 
     auto group = reinterpret_cast<Group*>(groupNativePtr);
     Table* pk_table = TBL(privateKeyTableNativePtr);
+    jboolean changed = JNI_FALSE;
 
     // Fix wrong types (string, int) -> (string, string)
     if (pk_table->get_column_type(FIELD_COLUMN_INDEX) == type_Int) {
@@ -1542,6 +1572,7 @@ JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeMigratePrimaryKeyTable
         // The column index for the renamed column will then be the same as the deleted old column
         pk_table->remove_column(FIELD_COLUMN_INDEX);
         pk_table->rename_column(pk_table->get_column_index(tmp_col_name), StringData("pk_property"));
+        changed = JNI_TRUE;
     }
 
     // If needed remove "class_" prefix from class names
@@ -1553,8 +1584,45 @@ JNIEXPORT void JNICALL Java_io_realm_internal_Table_nativeMigratePrimaryKeyTable
             std::string str(table_name.substr(TABLE_PREFIX.length()));
             StringData sd(str);
             pk_table->set_string(CLASS_COLUMN_INDEX, row_ndx, sd);
+            changed = JNI_TRUE;
         }
     }
+
+    // From realm-java 2.0.0, pk table's class column requires a search index.
+    if (!pk_table->has_search_index(CLASS_COLUMN_INDEX)) {
+        pk_table->add_search_index(CLASS_COLUMN_INDEX);
+        changed = JNI_TRUE;
+    }
+    return changed;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_io_realm_internal_Table_nativePrimaryKeyTableNeedsMigration(JNIEnv *, jclass, jlong primaryKeyTableNativePtr)
+{
+
+    const size_t CLASS_COLUMN_INDEX = io_realm_internal_Table_PRIMARY_KEY_CLASS_COLUMN_INDEX;
+    const size_t FIELD_COLUMN_INDEX = io_realm_internal_Table_PRIMARY_KEY_FIELD_COLUMN_INDEX;
+
+    Table* pk_table = TBL(primaryKeyTableNativePtr);
+
+    // Fix wrong types (string, int) -> (string, string)
+    if (pk_table->get_column_type(FIELD_COLUMN_INDEX) == type_Int) {
+        return JNI_TRUE;
+    }
+
+    // If needed remove "class_" prefix from class names
+    size_t number_of_rows = pk_table->size();
+    for (size_t row_ndx = 0; row_ndx < number_of_rows; row_ndx++) {
+        StringData table_name = pk_table->get_string(CLASS_COLUMN_INDEX, row_ndx);
+        if (table_name.begins_with(TABLE_PREFIX)) {
+            return JNI_TRUE;
+        }
+    }
+    // From realm-java 2.0.0, pk table's class column requires a search index.
+    if (!pk_table->has_search_index(CLASS_COLUMN_INDEX)) {
+        return JNI_TRUE;
+    }
+    return JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL Java_io_realm_internal_Table_nativeHasSameSchema

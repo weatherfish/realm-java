@@ -29,14 +29,18 @@
 using namespace std;
 using namespace realm;
 using namespace realm::util;
+using namespace realm::jni_util;
 
 // Caching classes and constructors for boxed types.
+JavaVM* g_vm;
 jclass java_lang_long;
 jmethodID java_lang_long_init;
 jclass java_lang_float;
 jmethodID java_lang_float_init;
 jclass java_lang_double;
 jmethodID java_lang_double_init;
+jclass session_class_ref;
+jmethodID session_error_handler;
 
 void ThrowRealmFileException(JNIEnv* env, const std::string& message, realm::RealmFileException::Kind kind);
 
@@ -91,7 +95,7 @@ void ThrowException(JNIEnv* env, ExceptionKind exception, const std::string& cla
     string message;
     jclass jExceptionClass = NULL;
 
-    TR_ERR(env, "jni: ThrowingException %d, %s, %s.", exception, classStr.c_str(), itemStr.c_str())
+    Log::e("jni: ThrowingException %1, %2, %3.", exception, classStr.c_str(), itemStr.c_str());
 
     switch (exception) {
         case ClassNotFound:
@@ -145,11 +149,11 @@ void ThrowException(JNIEnv* env, ExceptionKind exception, const std::string& cla
             break;
     }
     if (jExceptionClass != NULL) {
+        Log::e("Exception has been throw: %1", message.c_str());
         env->ThrowNew(jExceptionClass, message.c_str());
-        TR_ERR(env, "Exception has been throw: %s", message.c_str())
     }
     else {
-        TR_ERR(env, "ERROR: Couldn't throw exception.", NULL)
+        Log::e("ERROR: Couldn't throw exception.");
     }
 
     env->DeleteLocalRef(jExceptionClass);
@@ -160,6 +164,7 @@ void ThrowRealmFileException(JNIEnv* env, const std::string& message, realm::Rea
     jclass cls = env->FindClass("io/realm/exceptions/RealmFileException");
 
     jmethodID constructor = env->GetMethodID(cls, "<init>", "(BLjava/lang/String;)V");
+    // Initial value to suppress gcc warning.
     jbyte kind_code;
     switch (kind) {
         case realm::RealmFileException::Kind::AccessError:
@@ -175,7 +180,7 @@ void ThrowRealmFileException(JNIEnv* env, const std::string& message, realm::Rea
             kind_code = io_realm_internal_SharedRealm_FILE_EXCEPTION_KIND_NOT_FOUND;
             break;
         case realm::RealmFileException::Kind::IncompatibleLockFile:
-            kind_code = io_realm_internal_SharedRealm_FILE_EXCEPTION_KIND_IMCOMPATIBLE_LOCK_FILE;
+            kind_code = io_realm_internal_SharedRealm_FILE_EXCEPTION_KIND_INCOMPATIBLE_LOCK_FILE;
             break;
         case realm::RealmFileException::Kind::FormatUpgradeRequired:
             kind_code = io_realm_internal_SharedRealm_FILE_EXCEPTION_KIND_FORMAT_UPGRADE_REQUIRED;

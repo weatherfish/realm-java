@@ -31,6 +31,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Rule;
@@ -65,6 +66,7 @@ import io.realm.entities.CyclicType;
 import io.realm.entities.CyclicTypePrimaryKey;
 import io.realm.entities.DefaultValueConstructor;
 import io.realm.entities.DefaultValueOfField;
+import io.realm.entities.DefaultValueOverwriteNullLink;
 import io.realm.entities.DefaultValueSetter;
 import io.realm.entities.Dog;
 import io.realm.entities.DogPrimaryKey;
@@ -981,27 +983,26 @@ public class RealmTests {
         RealmConfiguration realmConfig = configFactory.createConfiguration("enc.realm", TestHelper.getRandomKey());
         Realm realm = Realm.getInstance(realmConfig);
         realm.close();
-        // TODO: remove try/catch block when compacting encrypted Realms is supported
-        try {
-            assertTrue(Realm.compactRealm(realmConfig));
-            fail();
-        } catch (IllegalArgumentException expected) {
-        }
+        assertTrue(Realm.compactRealm(realmConfig));
+        realm = Realm.getInstance(realmConfig);
+        assertFalse(realm.isClosed());
+        assertTrue(realm.isEmpty());
+        realm.close();
     }
 
     @Test
     public void compactRealm_encryptedPopulatedRealm() {
+        final int DATA_SIZE = 100;
         RealmConfiguration realmConfig = configFactory.createConfiguration("enc.realm", TestHelper.getRandomKey());
         Realm realm = Realm.getInstance(realmConfig);
 
-        populateTestRealm(realm, 100);
+        populateTestRealm(realm, DATA_SIZE);
         realm.close();
-        // TODO: remove try/catch block when compacting encrypted Realms is supported
-        try {
-            assertTrue(Realm.compactRealm(realmConfig));
-            fail();
-        } catch (IllegalArgumentException expected) {
-        }
+        assertTrue(Realm.compactRealm(realmConfig));
+        realm = Realm.getInstance(realmConfig);
+        assertFalse(realm.isClosed());
+        assertEquals(DATA_SIZE, realm.where(AllTypes.class).count());
+        realm.close();
     }
 
     @Test
@@ -2328,6 +2329,16 @@ public class RealmTests {
         testOneObjectFound(realm, DefaultValueOfField.class,
                 DefaultValueOfField.FIELD_LIST + "." + RandomPrimaryKey.FIELD_INT,
                 RandomPrimaryKey.FIELD_INT_DEFAULT_VALUE);
+    }
+
+    @Test
+    public void createObject_overwriteNullifiedLinkWithDefaultValue() {
+        final DefaultValueOverwriteNullLink created;
+        realm.beginTransaction();
+        created = realm.createObject(DefaultValueOverwriteNullLink.class);
+        realm.commitTransaction();
+
+        assertEquals(created.getExpectedKeyOfFieldObject(), created.getFieldObject().getFieldRandomPrimaryKey());
     }
 
     @Test
@@ -3746,5 +3757,93 @@ public class RealmTests {
         });
         //noinspection ConstantConditions
         assertEquals("pochi", realm.where(Cat.class).findFirst().getName());
+    }
+
+    @Test
+    public void getGlobalInstanceCount() {
+        final CountDownLatch bgDone = new CountDownLatch(1);
+
+        final RealmConfiguration config = configFactory.createConfiguration("globalCountTest");
+        assertEquals(0, Realm.getGlobalInstanceCount(config));
+
+        // Open thread local Realm
+        Realm realm = Realm.getInstance(config);
+        assertEquals(1, Realm.getGlobalInstanceCount(config));
+
+        // Open thread local DynamicRealm
+        DynamicRealm dynRealm = DynamicRealm.getInstance(config);
+        assertEquals(2, Realm.getGlobalInstanceCount(config));
+
+        // Open Realm in another thread
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                Realm realm = Realm.getInstance(config);
+                assertEquals(3, Realm.getGlobalInstanceCount(config));
+                realm.close();
+                assertEquals(2, Realm.getGlobalInstanceCount(config));
+                bgDone.countDown();
+            }
+        }).start();
+
+        TestHelper.awaitOrFail(bgDone);
+        dynRealm.close();
+        assertEquals(1, Realm.getGlobalInstanceCount(config));
+        realm.close();
+        assertEquals(0, Realm.getGlobalInstanceCount(config));
+    }
+
+    @Test
+    public void getLocalInstanceCount() {
+        final RealmConfiguration config = configFactory.createConfiguration("localInstanceCount");
+        assertEquals(0, Realm.getGlobalInstanceCount(config));
+
+        // Open thread local Realm
+        Realm realm = Realm.getInstance(config);
+        assertEquals(1, Realm.getGlobalInstanceCount(config));
+
+        // Open thread local DynamicRealm
+        DynamicRealm dynRealm = DynamicRealm.getInstance(config);
+        assertEquals(2, Realm.getGlobalInstanceCount(config));
+
+        dynRealm.close();
+        assertEquals(1, Realm.getGlobalInstanceCount(config));
+        realm.close();
+        assertEquals(0, Realm.getGlobalInstanceCount(config));
+    }
+
+    @Test
+    public void namedPipeDirForExternalStorage() {
+
+        // test for https://github.com/realm/realm-java/issues/3140
+        realm.close();
+        realm = null;
+
+        final File namedPipeDir = SharedRealm.getTemporaryDirectory();
+        assertTrue(namedPipeDir.isDirectory());
+        TestHelper.deleteRecursively(namedPipeDir);
+        //noinspection ResultOfMethodCallIgnored
+        namedPipeDir.mkdirs();
+
+        final File externalFilesDir = context.getExternalFilesDir(null);
+        final RealmConfiguration config = new RealmConfiguration.Builder()
+                .directory(externalFilesDir)
+                .name("external.realm")
+                .build();
+        Realm.deleteRealm(config);
+
+        // test if it works when the namedPipeDir is empty.
+        Realm realmOnExternalStorage = Realm.getInstance(config);
+        realmOnExternalStorage.close();
+
+        assertTrue(namedPipeDir.isDirectory());
+
+        Assume.assumeTrue("SELinux is not enforced on this device.", TestHelper.isSelinuxEnforcing());
+
+        assertEquals(2, namedPipeDir.list().length);
+
+        // test if it works when the namedPipeDir and the named pipe files already exist.
+        realmOnExternalStorage = Realm.getInstance(config);
+        realmOnExternalStorage.close();
     }
 }

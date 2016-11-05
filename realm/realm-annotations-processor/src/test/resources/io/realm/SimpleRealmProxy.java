@@ -5,10 +5,13 @@ import android.annotation.TargetApi;
 import android.os.Build;
 import android.util.JsonReader;
 import android.util.JsonToken;
+import io.realm.RealmObjectSchema;
+import io.realm.RealmSchema;
 import io.realm.exceptions.RealmMigrationNeededException;
 import io.realm.internal.ColumnInfo;
 import io.realm.internal.LinkView;
 import io.realm.internal.RealmObjectProxy;
+import io.realm.internal.Row;
 import io.realm.internal.SharedRealm;
 import io.realm.internal.Table;
 import io.realm.internal.TableOrView;
@@ -108,6 +111,13 @@ public class SimpleRealmProxy extends some.test.Simple
             if (!proxyState.getAcceptDefaultValue$realm()) {
                 return;
             }
+            final Row row = proxyState.getRow$realm();
+            if (value == null) {
+                row.getTable().setNull(columnInfo.nameIndex, row.getIndex(), true);
+                return;
+            }
+            row.getTable().setString(columnInfo.nameIndex, row.getIndex(), value, true);
+            return;
         }
 
         proxyState.getRealm$realm().checkIfValid();
@@ -139,10 +149,23 @@ public class SimpleRealmProxy extends some.test.Simple
             if (!proxyState.getAcceptDefaultValue$realm()) {
                 return;
             }
+            final Row row = proxyState.getRow$realm();
+            row.getTable().setLong(columnInfo.ageIndex, row.getIndex(), value, true);
+            return;
         }
 
         proxyState.getRealm$realm().checkIfValid();
         proxyState.getRow$realm().setLong(columnInfo.ageIndex, value);
+    }
+
+    public static RealmObjectSchema createRealmObjectSchema(RealmSchema realmSchema) {
+        if (!realmSchema.contains("Simple")) {
+            RealmObjectSchema realmObjectSchema = realmSchema.create("Simple");
+            realmObjectSchema.add(new Property("name", RealmFieldType.STRING, !Property.PRIMARY_KEY, !Property.INDEXED, !Property.REQUIRED));
+            realmObjectSchema.add(new Property("age", RealmFieldType.INTEGER, !Property.PRIMARY_KEY, !Property.INDEXED, Property.REQUIRED));
+            return realmObjectSchema;
+        }
+        return realmSchema.get("Simple");
     }
 
     public static Table initTable(SharedRealm sharedRealm) {
@@ -303,9 +326,9 @@ public class SimpleRealmProxy extends some.test.Simple
         cache.put(object, rowIndex);
         String realmGet$name = ((SimpleRealmProxyInterface)object).realmGet$name();
         if (realmGet$name != null) {
-            Table.nativeSetString(tableNativePtr, columnInfo.nameIndex, rowIndex, realmGet$name);
+            Table.nativeSetString(tableNativePtr, columnInfo.nameIndex, rowIndex, realmGet$name, false);
         }
-        Table.nativeSetLong(tableNativePtr, columnInfo.ageIndex, rowIndex, ((SimpleRealmProxyInterface)object).realmGet$age());
+        Table.nativeSetLong(tableNativePtr, columnInfo.ageIndex, rowIndex, ((SimpleRealmProxyInterface)object).realmGet$age(), false);
         return rowIndex;
     }
 
@@ -325,9 +348,9 @@ public class SimpleRealmProxy extends some.test.Simple
                 cache.put(object, rowIndex);
                 String realmGet$name = ((SimpleRealmProxyInterface)object).realmGet$name();
                 if (realmGet$name != null) {
-                    Table.nativeSetString(tableNativePtr, columnInfo.nameIndex, rowIndex, realmGet$name);
+                    Table.nativeSetString(tableNativePtr, columnInfo.nameIndex, rowIndex, realmGet$name, false);
                 }
-                Table.nativeSetLong(tableNativePtr, columnInfo.ageIndex, rowIndex, ((SimpleRealmProxyInterface)object).realmGet$age());
+                Table.nativeSetLong(tableNativePtr, columnInfo.ageIndex, rowIndex, ((SimpleRealmProxyInterface)object).realmGet$age(), false);
             }
         }
     }
@@ -343,11 +366,11 @@ public class SimpleRealmProxy extends some.test.Simple
         cache.put(object, rowIndex);
         String realmGet$name = ((SimpleRealmProxyInterface)object).realmGet$name();
         if (realmGet$name != null) {
-            Table.nativeSetString(tableNativePtr, columnInfo.nameIndex, rowIndex, realmGet$name);
+            Table.nativeSetString(tableNativePtr, columnInfo.nameIndex, rowIndex, realmGet$name, false);
         } else {
-            Table.nativeSetNull(tableNativePtr, columnInfo.nameIndex, rowIndex);
+            Table.nativeSetNull(tableNativePtr, columnInfo.nameIndex, rowIndex, false);
         }
-        Table.nativeSetLong(tableNativePtr, columnInfo.ageIndex, rowIndex, ((SimpleRealmProxyInterface)object).realmGet$age());
+        Table.nativeSetLong(tableNativePtr, columnInfo.ageIndex, rowIndex, ((SimpleRealmProxyInterface)object).realmGet$age(), false);
         return rowIndex;
     }
 
@@ -367,11 +390,11 @@ public class SimpleRealmProxy extends some.test.Simple
                 cache.put(object, rowIndex);
                 String realmGet$name = ((SimpleRealmProxyInterface)object).realmGet$name();
                 if (realmGet$name != null) {
-                    Table.nativeSetString(tableNativePtr, columnInfo.nameIndex, rowIndex, realmGet$name);
+                    Table.nativeSetString(tableNativePtr, columnInfo.nameIndex, rowIndex, realmGet$name, false);
                 } else {
-                    Table.nativeSetNull(tableNativePtr, columnInfo.nameIndex, rowIndex);
+                    Table.nativeSetNull(tableNativePtr, columnInfo.nameIndex, rowIndex, false);
                 }
-                Table.nativeSetLong(tableNativePtr, columnInfo.ageIndex, rowIndex, ((SimpleRealmProxyInterface)object).realmGet$age());
+                Table.nativeSetLong(tableNativePtr, columnInfo.ageIndex, rowIndex, ((SimpleRealmProxyInterface)object).realmGet$age(), false);
             }
         }
     }

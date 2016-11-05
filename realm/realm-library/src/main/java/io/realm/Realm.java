@@ -23,8 +23,6 @@ import android.os.Build;
 import android.util.JsonReader;
 import android.util.Log;
 
-import com.getkeepsafe.relinker.BuildConfig;
-
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -46,17 +44,20 @@ import java.util.Map;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import io.realm.exceptions.RealmException;
 import io.realm.exceptions.RealmFileException;
 import io.realm.exceptions.RealmMigrationNeededException;
 import io.realm.internal.ColumnIndices;
 import io.realm.internal.ColumnInfo;
+import io.realm.internal.ObjectServerFacade;
 import io.realm.internal.RealmCore;
 import io.realm.internal.RealmObjectProxy;
 import io.realm.internal.RealmProxyMediator;
+import io.realm.internal.SharedRealm;
 import io.realm.internal.Table;
-import io.realm.log.AndroidLogger;
+import io.realm.internal.async.RealmAsyncTaskImpl;
 import io.realm.log.RealmLog;
 import rx.Observable;
 
@@ -186,9 +187,10 @@ public final class Realm extends BaseRealm {
                 throw new IllegalArgumentException("Non-null context required.");
             }
             RealmCore.loadLibrary(context);
-            RealmLog.add(BuildConfig.DEBUG ? new AndroidLogger(Log.DEBUG) : new AndroidLogger(Log.WARN));
             defaultConfiguration = new RealmConfiguration.Builder(context).build();
+            ObjectServerFacade.getSyncFacadeIfPossible().init(context);
             BaseRealm.applicationContext = context.getApplicationContext();
+            SharedRealm.initialize(new File(context.getFilesDir(), ".realm.temp"));
         }
     }
 
@@ -268,7 +270,7 @@ public final class Realm extends BaseRealm {
                 deleteRealm(configuration);
             } else {
                 try {
-                    migrateRealm(configuration);
+                    migrateRealm(configuration, e);
                 } catch (FileNotFoundException fileNotFoundException) {
                     // Should never happen
                     throw new RealmFileException(RealmFileException.Kind.NOT_FOUND, fileNotFoundException);
@@ -313,23 +315,42 @@ public final class Realm extends BaseRealm {
     private static void initializeRealm(Realm realm) {
         long version = realm.getVersion();
         boolean commitNeeded = false;
+        boolean syncAvailable = realm.configuration.isSyncConfiguration();
+
         try {
-            realm.beginTransaction();
-            if (version == UNVERSIONED) {
-                commitNeeded = true;
-                realm.setVersion(realm.configuration.getSchemaVersion());
+            if (!syncAvailable) {
+                realm.beginTransaction();
+                if (version == UNVERSIONED) {
+                    commitNeeded = true;
+                    realm.setVersion(realm.configuration.getSchemaVersion());
+                }
             }
 
             RealmProxyMediator mediator = realm.configuration.getSchemaMediator();
             final Set<Class<? extends RealmModel>> modelClasses = mediator.getModelClasses();
             final Map<Class<? extends RealmModel>, ColumnInfo> columnInfoMap;
             columnInfoMap = new HashMap<Class<? extends RealmModel>, ColumnInfo>(modelClasses.size());
+            ArrayList<RealmObjectSchema> realmObjectSchemas = new ArrayList<>();
+            RealmSchema realmSchemaCache = new RealmSchema();
             for (Class<? extends RealmModel> modelClass : modelClasses) {
                 // Create and validate table
-                if (version == UNVERSIONED) {
+                if (version == UNVERSIONED && !syncAvailable) {
                     mediator.createTable(modelClass, realm.sharedRealm);
                 }
-                columnInfoMap.put(modelClass, mediator.validateTable(modelClass, realm.sharedRealm, false));
+                if (syncAvailable) {
+                    RealmObjectSchema realmObjectSchema = mediator.createRealmObjectSchema(modelClass, realmSchemaCache);
+                    realmObjectSchemas.add(realmObjectSchema);
+                } else {
+                    columnInfoMap.put(modelClass, mediator.validateTable(modelClass, realm.sharedRealm, false));
+                }
+            }
+            if (syncAvailable) {
+                RealmSchema schema = new RealmSchema(realmObjectSchemas);
+                // Assumption: when SyncConfiguration then additive schema update mode
+                realm.sharedRealm.updateSchema(schema, version);
+                for (Class<? extends RealmModel> modelClass : modelClasses) {
+                    columnInfoMap.put(modelClass, mediator.validateTable(modelClass, realm.sharedRealm, false));
+                }
             }
             realm.schema.columnIndices = new ColumnIndices(
                     (version == UNVERSIONED) ? realm.configuration.getSchemaVersion() : version,
@@ -338,14 +359,27 @@ public final class Realm extends BaseRealm {
             if (version == UNVERSIONED) {
                 final Transaction transaction = realm.getConfiguration().getInitialDataTransaction();
                 if (transaction != null) {
-                    transaction.execute(realm);
+                    if (syncAvailable) {
+                        realm.executeTransaction(transaction);
+                        realm.executeTransaction(new Transaction() {
+                            @Override
+                            public void execute(Realm realm) {
+                                realm.setVersion(realm.configuration.getSchemaVersion());
+                            }
+                        });
+                    } else {
+                        transaction.execute(realm);
+                    }
                 }
+
             }
         } finally {
-            if (commitNeeded) {
-                realm.commitTransaction(false);
-            } else {
-                realm.cancelTransaction();
+            if (!syncAvailable) {
+                if (commitNeeded) {
+                    realm.commitTransaction(false);
+                } else {
+                    realm.cancelTransaction();
+                }
             }
         }
     }
@@ -366,6 +400,7 @@ public final class Realm extends BaseRealm {
         if (clazz == null || json == null) {
             return;
         }
+        checkIfValid();
 
         for (int i = 0; i < json.length(); i++) {
             try {
@@ -395,6 +430,7 @@ public final class Realm extends BaseRealm {
         if (clazz == null || json == null) {
             return;
         }
+        checkIfValid();
         checkHasPrimaryKey(clazz);
         for (int i = 0; i < json.length(); i++) {
             try {
@@ -450,6 +486,7 @@ public final class Realm extends BaseRealm {
         if (clazz == null || json == null || json.length() == 0) {
             return;
         }
+        checkIfValid();
         checkHasPrimaryKey(clazz);
 
         JSONArray arr;
@@ -481,6 +518,7 @@ public final class Realm extends BaseRealm {
         if (clazz == null || inputStream == null) {
             return;
         }
+        checkIfValid();
 
         JsonReader reader = new JsonReader(new InputStreamReader(inputStream, "UTF-8"));
         try {
@@ -516,6 +554,7 @@ public final class Realm extends BaseRealm {
         if (clazz == null || in == null) {
             return;
         }
+        checkIfValid();
         checkHasPrimaryKey(clazz);
 
         // As we need the primary key value we have to first parse the entire input stream as in the general
@@ -553,6 +592,7 @@ public final class Realm extends BaseRealm {
         if (clazz == null || json == null) {
             return null;
         }
+        checkIfValid();
 
         try {
             return configuration.getSchemaMediator().createOrUpdateUsingJsonObject(clazz, this, json, false);
@@ -580,6 +620,7 @@ public final class Realm extends BaseRealm {
         if (clazz == null || json == null) {
             return null;
         }
+        checkIfValid();
         checkHasPrimaryKey(clazz);
         try {
             E realmObject = configuration.getSchemaMediator().createOrUpdateUsingJsonObject(clazz, this, json, true);
@@ -636,6 +677,7 @@ public final class Realm extends BaseRealm {
         if (clazz == null || json == null || json.length() == 0) {
             return null;
         }
+        checkIfValid();
         checkHasPrimaryKey(clazz);
 
         JSONObject obj;
@@ -668,6 +710,7 @@ public final class Realm extends BaseRealm {
         if (clazz == null || inputStream == null) {
             return null;
         }
+        checkIfValid();
         E realmObject;
         Table table = schema.getTable(clazz);
         if (table.hasPrimaryKey()) {
@@ -720,6 +763,7 @@ public final class Realm extends BaseRealm {
         if (clazz == null || in == null) {
             return null;
         }
+        checkIfValid();
         checkHasPrimaryKey(clazz);
 
         // As we need the primary key value we have to first parse the entire input stream as in the general
@@ -1118,7 +1162,7 @@ public final class Realm extends BaseRealm {
      * The copied object(s) are all detached from Realm and they will no longer be automatically updated. This means
      * that the copied objects might contain data that are no longer consistent with other managed Realm objects.
      * <p>
-     * *WARNING*: Any changes to copied objects can be merged back into Realm using 
+     * *WARNING*: Any changes to copied objects can be merged back into Realm using
      * {@link #copyToRealmOrUpdate(RealmModel)}, but all fields will be overridden, not just those that were changed.
      * This includes references to other objects, and can potentially override changes made by other threads.
      *
@@ -1139,9 +1183,9 @@ public final class Realm extends BaseRealm {
      * The copied object(s) are all detached from Realm and they will no longer be automatically updated. This means
      * that the copied objects might contain data that are no longer consistent with other managed Realm objects.
      * <p>
-     * *WARNING*: Any changes to copied objects can be merged back into Realm using 
-     * {@link #copyToRealmOrUpdate(RealmModel)}, but all fields will be overridden, not just those that were changed. 
-     * This includes references to other objects even though they might be {@code null} due to {@code maxDepth} being 
+     * *WARNING*: Any changes to copied objects can be merged back into Realm using
+     * {@link #copyToRealmOrUpdate(RealmModel)}, but all fields will be overridden, not just those that were changed.
+     * This includes references to other objects even though they might be {@code null} due to {@code maxDepth} being
      * reached. This can also potentially override changes made by other threads.
      *
      * @param realmObject {@link RealmObject} to copy.
@@ -1391,7 +1435,7 @@ public final class Realm extends BaseRealm {
             }
         });
 
-        return new RealmAsyncTask(pendingTransaction);
+        return new RealmAsyncTaskImpl(pendingTransaction, asyncTaskExecutor);
     }
 
     /**
@@ -1455,7 +1499,23 @@ public final class Realm extends BaseRealm {
      * @throws FileNotFoundException if the Realm file doesn't exist.
      */
     public static void migrateRealm(RealmConfiguration configuration) throws FileNotFoundException {
-        migrateRealm(configuration, null);
+        migrateRealm(configuration, (RealmMigration) null);
+    }
+
+    /**
+     * Called when migration needed in the Realm initialization.
+     *
+     * @param configuration {@link RealmConfiguration}
+     * @param cause which triggers this migration.
+     * @throws FileNotFoundException if the Realm file doesn't exist.
+     */
+    private static void migrateRealm(final RealmConfiguration configuration, final RealmMigrationNeededException cause)
+            throws FileNotFoundException {
+        BaseRealm.migrateRealm(configuration, null, new MigrationCallback() {
+            @Override
+            public void migrationComplete() {
+            }
+        }, cause);
     }
 
     /**
@@ -1472,7 +1532,7 @@ public final class Realm extends BaseRealm {
             @Override
             public void migrationComplete() {
             }
-        });
+        }, null);
     }
 
     /**
@@ -1502,17 +1562,6 @@ public final class Realm extends BaseRealm {
      */
     public static boolean compactRealm(RealmConfiguration configuration) {
         return BaseRealm.compactRealm(configuration);
-    }
-
-    // Get the canonical path for a given file
-    static String getCanonicalPath(File realmFile) {
-        try {
-            return realmFile.getCanonicalPath();
-        } catch (IOException e) {
-            throw new RealmFileException(RealmFileException.Kind.ACCESS_ERROR,
-                    "Could not resolve the canonical path to the Realm file: " + realmFile.getAbsolutePath(),
-                    e);
-        }
     }
 
     Table getTable(Class<? extends RealmModel> clazz) {
@@ -1584,6 +1633,35 @@ public final class Realm extends BaseRealm {
         } catch (IllegalAccessException e) {
             throw new RealmException("Could not create an instance of " + moduleName, e);
         }
+    }
+
+    /**
+     * Returns the current number of open Realm instances across all threads that are using this configuration.
+     * This includes both dynamic and normal Realms.
+     *
+     * @param configuration the {@link io.realm.RealmConfiguration} for the Realm.
+     * @return number of open Realm instances across all threads.
+     */
+    public static int getGlobalInstanceCount(RealmConfiguration configuration) {
+        final AtomicInteger globalCount = new AtomicInteger(0);
+        RealmCache.invokeWithGlobalRefCount(configuration, new RealmCache.Callback() {
+            @Override
+            public void onResult(int count) {
+                globalCount.set(count);
+            }
+        });
+        return globalCount.get();
+    }
+
+    /**
+     * Returns the current number of open Realm instances on the thread calling this method. This include both
+     * dynamic and normal Realms.
+     *
+     * @param configuration the {@link io.realm.RealmConfiguration} for the Realm.
+     * @return number of open Realm instances across all threads.
+     */
+    public static int getLocalInstanceCount(RealmConfiguration configuration) {
+        return RealmCache.getLocalThreadCount(configuration);
     }
 
     /**

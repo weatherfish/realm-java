@@ -19,12 +19,10 @@ package io.realm;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 
 import java.io.Closeable;
 import java.io.File;
 import java.io.FileNotFoundException;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -38,9 +36,10 @@ import io.realm.internal.ColumnInfo;
 import io.realm.internal.Row;
 import io.realm.internal.Table;
 import io.realm.internal.UncheckedRow;
+import io.realm.internal.Util;
 import io.realm.internal.async.RealmThreadPoolExecutor;
-import io.realm.log.AndroidLogger;
 import io.realm.log.RealmLog;
+import io.realm.internal.ObjectServerFacade;
 import rx.Observable;
 
 /**
@@ -61,6 +60,7 @@ abstract class BaseRealm implements Closeable {
     private static final String NOT_IN_TRANSACTION_MESSAGE =
             "Changing Realm data can only be done from inside a transaction.";
 
+    
     volatile static Context applicationContext;
 
     // Thread pool for all async operations (Query & transaction)
@@ -72,6 +72,7 @@ abstract class BaseRealm implements Closeable {
 
     RealmSchema schema;
     HandlerController handlerController;
+
 
     protected BaseRealm(RealmConfiguration configuration) {
         this.threadId = Thread.currentThread().getId();
@@ -346,6 +347,8 @@ abstract class BaseRealm implements Closeable {
     void commitTransaction(boolean notifyLocalThread) {
         checkIfValid();
         sharedRealm.commitTransaction();
+        ObjectServerFacade.getFacade(configuration.isSyncConfiguration())
+                .notifyCommit(configuration, sharedRealm.getLastSnapshotVersion());
 
         // Sometimes we don't want to notify the local thread about commits, e.g. creating a completely new Realm
         // file will make a commit in order to create the schema. Users should not be notified about that.
@@ -393,6 +396,16 @@ abstract class BaseRealm implements Closeable {
     protected void checkIfValidAndInTransaction() {
         if (!isInTransaction()) {
             throw new IllegalStateException(NOT_IN_TRANSACTION_MESSAGE);
+        }
+    }
+
+    /**
+     * Check if the Realm is not built with a SyncRealmConfiguration
+     */
+    void checkNotInSync() {
+        if (configuration.isSyncConfiguration()) {
+            throw new IllegalArgumentException("You cannot perform changes to a schema. " +
+                    "Please update app and restart.");
         }
     }
 
@@ -449,6 +462,9 @@ abstract class BaseRealm implements Closeable {
             sharedRealm.close();
             sharedRealm = null;
         }
+        if (schema != null) {
+            schema.close();
+        }
     }
 
     /**
@@ -502,14 +518,14 @@ abstract class BaseRealm implements Closeable {
     // Used by RealmList/RealmResults
     // Invariant: if dynamicClassName != null -> clazz == DynamicRealmObject
     <E extends RealmModel> E get(Class<E> clazz, String dynamicClassName, long rowIndex) {
-        final Table table = (dynamicClassName != null) ? schema.getTable(dynamicClassName) : schema.getTable(clazz);
+        final boolean isDynamicRealmObject = dynamicClassName != null;
+        final Table table = isDynamicRealmObject ? schema.getTable(dynamicClassName) : schema.getTable(clazz);
 
         E result;
-        if (dynamicClassName != null) {
+        if (isDynamicRealmObject) {
             @SuppressWarnings("unchecked")
             E dynamicObj = (E) new DynamicRealmObject(this,
-                    (rowIndex != Table.NO_MATCH) ? table.getUncheckedRow(rowIndex) : InvalidRow.INSTANCE,
-                    false);
+                    (rowIndex != Table.NO_MATCH) ? table.getCheckedRow(rowIndex) : InvalidRow.INSTANCE);
             result = dynamicObj;
         } else {
             result = configuration.getSchemaMediator().newInstance(clazz, this,
@@ -537,36 +553,11 @@ abstract class BaseRealm implements Closeable {
         }
     }
 
-    static private boolean deletes(String canonicalPath, File rootFolder, String realmFileName) {
-        final AtomicBoolean realmDeleted = new AtomicBoolean(true);
-
-        List<File> filesToDelete = Arrays.asList(
-                new File(rootFolder, realmFileName),
-                new File(rootFolder, realmFileName + ".lock"),
-                // Old core log file naming styles
-                new File(rootFolder, realmFileName + ".log_a"),
-                new File(rootFolder, realmFileName + ".log_b"),
-                new File(rootFolder, realmFileName + ".log"),
-                new File(canonicalPath));
-        for (File fileToDelete : filesToDelete) {
-            if (fileToDelete.exists()) {
-                boolean deleteResult = fileToDelete.delete();
-                if (!deleteResult) {
-                    realmDeleted.set(false);
-                    RealmLog.warn("Could not delete the file %s", fileToDelete);
-                }
-            }
-        }
-        return realmDeleted.get();
-    }
-
     /**
      * Deletes the Realm file defined by the given configuration.
      */
     static boolean deleteRealm(final RealmConfiguration configuration) {
-        final String management = ".management";
         final AtomicBoolean realmDeleted = new AtomicBoolean(true);
-
         RealmCache.invokeWithGlobalRefCount(configuration, new RealmCache.Callback() {
             @Override
             public void onResult(int count) {
@@ -578,23 +569,9 @@ abstract class BaseRealm implements Closeable {
                 String canonicalPath = configuration.getPath();
                 File realmFolder = configuration.getRealmDirectory();
                 String realmFileName = configuration.getRealmFileName();
-                File managementFolder = new File(realmFolder, realmFileName + management);
-
-                // delete files in management directory and the directory
-                // there is no subfolders in the management directory
-                File[] files = managementFolder.listFiles();
-                if (files != null) {
-                    for (File file : files) {
-                        realmDeleted.set(realmDeleted.get() && file.delete());
-                    }
-                }
-                realmDeleted.set(realmDeleted.get() && managementFolder.delete());
-
-                // delete specific files in root directory
-                realmDeleted.set(realmDeleted.get() && deletes(canonicalPath, realmFolder, realmFileName));
+                realmDeleted.set(Util.deleteRealm(canonicalPath, realmFolder, realmFileName));
             }
         });
-
         return realmDeleted.get();
     }
 
@@ -606,10 +583,6 @@ abstract class BaseRealm implements Closeable {
      * @return {@code true} if compaction succeeded, {@code false} otherwise.
      */
     static boolean compactRealm(final RealmConfiguration configuration) {
-        // FIXME: Move this check to OS?
-        if (configuration.getEncryptionKey() != null) {
-            throw new IllegalArgumentException("Cannot currently compact an encrypted Realm.");
-        }
         SharedRealm sharedRealm = SharedRealm.getInstance(configuration);
         Boolean result = sharedRealm.compact();
         sharedRealm.close();
@@ -622,15 +595,17 @@ abstract class BaseRealm implements Closeable {
      * @param configuration configuration for the Realm that should be migrated.
      * @param migration if set, this migration block will override what is set in {@link RealmConfiguration}.
      * @param callback callback for specific Realm type behaviors.
+     * @param cause which triggers this migration.
      * @throws FileNotFoundException if the Realm file doesn't exist.
      */
     protected static void migrateRealm(final RealmConfiguration configuration, final RealmMigration migration,
-                                       final MigrationCallback callback) throws FileNotFoundException {
+                                       final MigrationCallback callback, final RealmMigrationNeededException cause)
+            throws FileNotFoundException {
         if (configuration == null) {
             throw new IllegalArgumentException("RealmConfiguration must be provided");
         }
         if (migration == null && configuration.getMigration() == null) {
-            throw new RealmMigrationNeededException(configuration.getPath(), "RealmMigration must be provided");
+            throw new RealmMigrationNeededException(configuration.getPath(), "RealmMigration must be provided", cause);
         }
 
         final AtomicBoolean fileNotFound = new AtomicBoolean(false);

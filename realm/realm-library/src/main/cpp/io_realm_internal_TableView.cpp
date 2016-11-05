@@ -317,6 +317,17 @@ JNIEXPORT jlong JNICALL Java_io_realm_internal_TableView_nativeGetLink
     return TV(nativeViewPtr)->get_link( S(columnIndex), S(rowIndex));  // noexcept
 }
 
+JNIEXPORT jboolean JNICALL Java_io_realm_internal_TableView_nativeIsNull
+        (JNIEnv* env, jobject, jlong nativeViewPtr, jlong columnIndex, jlong rowIndex)
+{
+    try {
+        if (!VIEW_VALID_AND_IN_SYNC(env, nativeViewPtr))
+            return 0;
+        return TV(nativeViewPtr)->get_parent().is_null( S(columnIndex), TV(nativeViewPtr)->get_source_ndx(S(rowIndex))) ? JNI_TRUE : JNI_FALSE;  // noexcept
+    } CATCH_STD()
+    return 0;
+}
+
 // Setters
 
 JNIEXPORT void JNICALL Java_io_realm_internal_TableView_nativeSetLong(
@@ -934,7 +945,7 @@ JNIEXPORT jstring JNICALL Java_io_realm_internal_TableView_nativeToJson(
 JNIEXPORT jlong JNICALL Java_io_realm_internal_TableView_nativeWhere(
     JNIEnv *env, jobject, jlong nativeViewPtr)
 {
-    TR_ENTER_PTR(env, nativeViewPtr)
+    TR_ENTER_PTR(nativeViewPtr)
     try {
         if (!VIEW_VALID_AND_IN_SYNC(env, nativeViewPtr))
             return 0;
@@ -964,7 +975,7 @@ JNIEXPORT jlong JNICALL Java_io_realm_internal_TableView_nativeSyncIfNeeded(
 JNIEXPORT jlong JNICALL Java_io_realm_internal_TableView_nativeFindBySourceNdx
         (JNIEnv *env, jobject, jlong nativeViewPtr, jlong sourceIndex)
 {
-    TR_ENTER_PTR(env, nativeViewPtr);
+    TR_ENTER_PTR(nativeViewPtr);
     try {
         if (!VIEW_VALID_AND_IN_SYNC(env, nativeViewPtr) || !ROW_INDEX_VALID(env, &(TV(nativeViewPtr)->get_parent()), sourceIndex))
             return -1;

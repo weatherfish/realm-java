@@ -382,6 +382,7 @@ public class DynamicRealmTests {
                 looperThread.testComplete();
             }
         });
+        looperThread.keepStrongReference.add(allTypes);
     }
 
     @Test
@@ -406,6 +407,7 @@ public class DynamicRealmTests {
                 looperThread.testComplete();
             }
         });
+        looperThread.keepStrongReference.add(allTypes);
     }
 
     // Initialize a Dynamic Realm used by the *Async tests and keep it ref in the looperThread.
@@ -522,6 +524,8 @@ public class DynamicRealmTests {
                 signalCallbackDone.run();
             }
         });
+        looperThread.keepStrongReference.add(realmResults1);
+        looperThread.keepStrongReference.add(realmResults2);
     }
 
     @Test
