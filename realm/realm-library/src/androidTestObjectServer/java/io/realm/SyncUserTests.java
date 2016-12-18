@@ -19,32 +19,41 @@ package io.realm;
 import android.support.test.InstrumentationRegistry;
 import android.support.test.runner.AndroidJUnit4;
 
-import org.junit.Before;
+import org.junit.After;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Collection;
 
-import io.realm.android.SharedPrefsUserStore;
 import io.realm.rule.RunInLooperThread;
 import io.realm.util.SyncTestUtils;
 
 import static io.realm.util.SyncTestUtils.createTestUser;
-import static org.junit.Assert.assertEquals;
+import static junit.framework.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 @RunWith(AndroidJUnit4.class)
-public class UserTests {
+public class SyncUserTests {
 
     @Rule
     public final RunInLooperThread looperThread = new RunInLooperThread();
 
-    @Before
-    public void setUp() {
-        Realm.init(InstrumentationRegistry.getTargetContext());
-        SyncManager.getUserStore().clear();
+    @BeforeClass
+    public static void initUserStore() {
+        Realm.init(InstrumentationRegistry.getInstrumentation().getContext());
+        UserStore userStore = new RealmFileUserStore(InstrumentationRegistry.getTargetContext().getFilesDir().getPath());
+        SyncManager.setUserStore(userStore);
+    }
+
+    @After
+    public void tearDown() {
+        RealmFileUserStore.nativeResetForTesting();
     }
 
     @Test
@@ -58,9 +67,8 @@ public class UserTests {
     @Test
     public void currentUser_returnsNullIfUserExpired() {
         // Add an expired user to the user store
-        UserStore userStore = new SharedPrefsUserStore(InstrumentationRegistry.getContext());
-        SyncManager.setUserStore(userStore);
-        userStore.put(UserStore.CURRENT_USER_KEY, SyncTestUtils.createTestUser(Long.MIN_VALUE));
+        UserStore userStore = SyncManager.getUserStore();
+        userStore.put(SyncTestUtils.createTestUser(Long.MIN_VALUE));
 
         // Invalid users should not be returned when asking the for the current user
         assertNull(SyncUser.currentUser());
@@ -69,14 +77,14 @@ public class UserTests {
     // Test that current user is cleared if it is logged out
     @Test
     public void currentUser_clearedOnLogout() {
-        // Add an expired user to the user store
+        // Add 1 valid user to the user store
         SyncUser user = SyncTestUtils.createTestUser(Long.MAX_VALUE);
-        UserStore userStore = new SharedPrefsUserStore(InstrumentationRegistry.getContext());
-        SyncManager.setUserStore(userStore);
-        userStore.put(UserStore.CURRENT_USER_KEY, user);
+        UserStore userStore = SyncManager.getUserStore();
+        userStore.put(user);
 
         SyncUser savedUser = SyncUser.currentUser();
         assertEquals(user, savedUser);
+        assertNotNull(savedUser);
         savedUser.logout();
         assertNull(SyncUser.currentUser());
     }
@@ -92,10 +100,9 @@ public class UserTests {
     @Test
     public void all_validUsers() {
         // Add 1 expired user and 1 valid user to the user store
-        UserStore userStore = new SharedPrefsUserStore(InstrumentationRegistry.getContext());
-        SyncManager.setUserStore(userStore);
-        userStore.put(UserStore.CURRENT_USER_KEY, SyncTestUtils.createTestUser(Long.MIN_VALUE));
-        userStore.put(UserStore.CURRENT_USER_KEY, SyncTestUtils.createTestUser(Long.MAX_VALUE));
+        UserStore userStore = SyncManager.getUserStore();
+        userStore.put(SyncTestUtils.createTestUser(Long.MIN_VALUE));
+        userStore.put(SyncTestUtils.createTestUser(Long.MAX_VALUE));
 
         Collection<SyncUser> users = SyncUser.all();
         assertEquals(1, users.size());
@@ -113,4 +120,37 @@ public class UserTests {
         assertEquals(user, User.currentUser());
     }
     */
+
+    @Test
+    public void getManagementRealm() {
+        SyncUser user = SyncTestUtils.createTestUser();
+        Realm managementRealm = user.getManagementRealm();
+        assertNotNull(managementRealm);
+        managementRealm.close();
+    }
+
+    @Test
+    public void getManagementRealm_enforceTLS() throws URISyntaxException {
+        // Non TLS
+        SyncUser user = SyncTestUtils.createTestUser("http://objectserver.realm.io/auth");
+        Realm managementRealm = user.getManagementRealm();
+        SyncConfiguration config = (SyncConfiguration) managementRealm.getConfiguration();
+        assertEquals(new URI("realm://objectserver.realm.io/" + user.getIdentity() + "/__management"), config.getServerUrl());
+        managementRealm.close();
+
+        // TLS
+        user = SyncTestUtils.createTestUser("https://objectserver.realm.io/auth");
+        managementRealm = user.getManagementRealm();
+        config = (SyncConfiguration) managementRealm.getConfiguration();
+        assertEquals(new URI("realms://objectserver.realm.io/" + user.getIdentity() + "/__management"), config.getServerUrl());
+        managementRealm.close();
+    }
+
+    @Test
+    public void toString_returnDescription() {
+        SyncUser user = SyncTestUtils.createTestUser("http://objectserver.realm.io/auth");
+        String str = user.toString();
+        assertTrue(str != null && !str.isEmpty());
+    }
+
 }

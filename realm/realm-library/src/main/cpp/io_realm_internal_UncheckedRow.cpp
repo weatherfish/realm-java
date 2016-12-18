@@ -19,8 +19,10 @@
 
 using namespace realm;
 
+static void finalize_unchecked_row(jlong ptr);
+
 JNIEXPORT jlong JNICALL Java_io_realm_internal_UncheckedRow_nativeGetColumnCount
-  (JNIEnv *env, jobject, jlong nativeRowPtr)
+  (JNIEnv*, jobject, jlong nativeRowPtr)
 {
     TR_ENTER_PTR(nativeRowPtr)
     if (!ROW(nativeRowPtr)->is_attached())
@@ -57,7 +59,7 @@ JNIEXPORT jlong JNICALL Java_io_realm_internal_UncheckedRow_nativeGetColumnIndex
 }
 
 JNIEXPORT jint JNICALL Java_io_realm_internal_UncheckedRow_nativeGetColumnType
-  (JNIEnv* env, jobject, jlong nativeRowPtr, jlong columnIndex)
+  (JNIEnv*, jobject, jlong nativeRowPtr, jlong columnIndex)
 {
     TR_ENTER_PTR(nativeRowPtr)
     return static_cast<jint>( ROW(nativeRowPtr)->get_column_type( S(columnIndex)) ); // noexcept
@@ -328,15 +330,8 @@ JNIEXPORT void JNICALL Java_io_realm_internal_UncheckedRow_nativeNullifyLink
     } CATCH_STD()
 }
 
-JNIEXPORT void JNICALL Java_io_realm_internal_UncheckedRow_nativeClose
-  (JNIEnv* env, jclass, jlong nativeRowPtr)
-{
-    TR_ENTER_PTR(nativeRowPtr)
-    delete ROW(nativeRowPtr);
-}
-
 JNIEXPORT jboolean JNICALL Java_io_realm_internal_UncheckedRow_nativeIsAttached
-  (JNIEnv* env, jobject, jlong nativeRowPtr)
+  (JNIEnv*, jobject, jlong nativeRowPtr)
 {
     TR_ENTER_PTR(nativeRowPtr)
     return ROW(nativeRowPtr)->is_attached();
@@ -350,7 +345,7 @@ JNIEXPORT jboolean JNICALL Java_io_realm_internal_UncheckedRow_nativeHasColumn
 }
 
 JNIEXPORT jboolean JNICALL Java_io_realm_internal_UncheckedRow_nativeIsNull
-  (JNIEnv* env, jobject, jlong nativeRowPtr, jlong columnIndex) {
+  (JNIEnv*, jobject, jlong nativeRowPtr, jlong columnIndex) {
     TR_ENTER_PTR(nativeRowPtr)
     return ROW(nativeRowPtr)->is_null(columnIndex);
 }
@@ -366,3 +361,17 @@ JNIEXPORT void JNICALL Java_io_realm_internal_UncheckedRow_nativeSetNull
         ROW(nativeRowPtr)->set_null(columnIndex);
     } CATCH_STD()
 }
+
+static void finalize_unchecked_row(jlong ptr)
+{
+    TR_ENTER_PTR(ptr)
+    delete ROW(ptr);
+}
+
+JNIEXPORT jlong JNICALL Java_io_realm_internal_UncheckedRow_nativeGetFinalizerPtr
+  (JNIEnv *, jclass)
+{
+    TR_ENTER()
+    return reinterpret_cast<jlong>(&finalize_unchecked_row);
+}
+

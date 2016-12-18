@@ -204,7 +204,7 @@ public class ClassMetaData {
     // Report if the default constructor is missing
     private boolean checkDefaultConstructor() {
         if (!hasDefaultConstructor) {
-            Utils.error("A default public constructor with no argument must be declared if a custom constructor is declared.");
+            Utils.error("A default public constructor with no argument must be declared in " + className + " if a custom constructor is declared.");
             return false;
         } else {
             return true;
@@ -322,7 +322,7 @@ public class ClassMetaData {
      */
     public boolean isModelClass() {
         String type = classType.toString();
-        if (type.equals("io.realm.dynamic.DynamicRealmObject")) {
+        if (type.equals("io.realm.DynamicRealmObject")) {
             return false;
         }
         return (!type.endsWith(".RealmObject") && !type.endsWith("RealmProxy"));
