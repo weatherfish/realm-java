@@ -21,6 +21,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.realm.annotations.Beta;
 import io.realm.internal.Keep;
 import io.realm.internal.network.AuthenticationServer;
@@ -43,6 +44,7 @@ import io.realm.log.RealmLog;
  */
 @Keep
 @Beta
+@SuppressFBWarnings("MS_CANNOT_BE_FINAL")
 public class SyncManager {
 
     /**
@@ -203,17 +205,6 @@ public class SyncManager {
     // Return the currently configured User store.
     static UserStore getUserStore() {
         return userStore;
-    }
-
-    // This is called from SyncManager.cpp from the worker thread the Sync Client is running on
-    // Right now Core doesn't send these errors to the proper session, so instead we need to notify all sessions
-    // from here. This can be removed once better error propagation is implemented in Sync Core.
-    @SuppressWarnings("unused")
-    private static void notifyErrorHandler(int errorCode, String errorMessage) {
-        ObjectServerError error = new ObjectServerError(ErrorCode.fromInt(errorCode), errorMessage);
-        for (ObjectServerSession session : SessionStore.getAllSessions()) {
-            session.onError(error);
-        }
     }
 
     // Notify listeners that a user logged in

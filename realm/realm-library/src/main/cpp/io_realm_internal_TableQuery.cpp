@@ -19,9 +19,11 @@
 #include <shared_realm.hpp>
 #include <object_store.hpp>
 #include "util.hpp"
+#include "jni_util/java_local_ref.hpp"
 #include "io_realm_internal_TableQuery.h"
 
 using namespace realm;
+using namespace realm::jni_util;
 
 #if 1
 #define QUERY_COL_TYPE_VALID(env, jPtr, col, type)  query_col_type_valid(env, jPtr, col, type)
@@ -829,7 +831,8 @@ enum StringPredicate {
     StringNotEqual,
     StringContains,
     StringBeginsWith,
-    StringEndsWith
+    StringEndsWith,
+    StringLike
 };
 
 
@@ -864,6 +867,9 @@ static void TableQuery_StringPredicate(JNIEnv *env, jlong nativeQueryPtr, jlongA
             case StringEndsWith:
                 Q(nativeQueryPtr)->ends_with(S(arr[0]), value2, is_case_sensitive);
                 break;
+            case StringLike:
+                Q(nativeQueryPtr)->like(S(arr[0]), value2, is_case_sensitive);
+                break;
             }
         }
         else {
@@ -883,6 +889,9 @@ static void TableQuery_StringPredicate(JNIEnv *env, jlong nativeQueryPtr, jlongA
                 break;
             case StringEndsWith:
                 Q(nativeQueryPtr)->and_query(table_ref->column<String>(size_t(arr[arr_len-1])).ends_with(StringData(value2), is_case_sensitive));
+                break;
+            case StringLike:
+                Q(nativeQueryPtr)->and_query(table_ref->column<String>(size_t(arr[arr_len-1])).like(StringData(value2), is_case_sensitive));
                 break;
             }
         }
@@ -911,6 +920,12 @@ JNIEXPORT void JNICALL Java_io_realm_internal_TableQuery_nativeEndsWith(
     JNIEnv* env, jobject, jlong nativeQueryPtr, jlongArray columnIndexes, jstring value, jboolean caseSensitive)
 {
     TableQuery_StringPredicate(env, nativeQueryPtr, columnIndexes, value, caseSensitive, StringEndsWith);
+}
+
+JNIEXPORT void JNICALL Java_io_realm_internal_TableQuery_nativeLike(
+        JNIEnv* env, jobject, jlong nativeQueryPtr, jlongArray columnIndexes, jstring value, jboolean caseSensitive)
+{
+    TableQuery_StringPredicate(env, nativeQueryPtr, columnIndexes, value, caseSensitive, StringLike);
 }
 
 JNIEXPORT void JNICALL Java_io_realm_internal_TableQuery_nativeContains(
@@ -1210,7 +1225,7 @@ JNIEXPORT jlongArray JNICALL Java_io_realm_internal_TableQuery_nativeBatchUpdate
         // Step3: Run & export the queries against the latest shared group
         for (size_t i = 0; i < number_of_queries; ++i) {
             // Delete the local ref since we might have a long loop
-            JniLocalRef<jlongArray> local_ref(env, (jlongArray) env->GetObjectArrayElement(query_param_matrix, i));
+            JavaLocalRef<jlongArray> local_ref(env, (jlongArray) env->GetObjectArrayElement(query_param_matrix, i));
             JniLongArray query_param_array(env, local_ref);
 
             switch (query_param_array[0]) { // 0, index of the type of query, the next indicies are parameters
