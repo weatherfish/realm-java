@@ -1,5 +1,14 @@
 ## 2.4.0
 
+## 2.3.1
+
+### Bug fixes
+
+* Fixed NPE problem happened in SharedRealm.finalize() (#3730).
+* Fixed a build error when the project is using Kotlin (#4087).
+* Fixed a bug causing classes to be replaced by classes already in Gradle's classpath (#3568).
+* NullPointerException when notifying a single object that it changed (#4086).
+
 ## 2.3.0
 
 ### Object Server API Changes 
