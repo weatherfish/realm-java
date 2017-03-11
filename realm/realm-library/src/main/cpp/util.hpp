@@ -31,7 +31,6 @@
 #include <realm/timestamp.hpp>
 #include <realm/util/meta.hpp>
 #include <realm/util/safe_int_ops.hpp>
-#include <realm/sync/client.hpp>
 
 #include <util/format.hpp>
 
@@ -50,9 +49,6 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved);
 #ifdef __cplusplus
 }
 #endif
-
-// Use this macro when logging a pointer using '%p'
-#define VOID_PTR(ptr) reinterpret_cast<void*>(ptr)
 
 #define STRINGIZE_DETAIL(x) #x
 #define STRINGIZE(x) STRINGIZE_DETAIL(x)
@@ -75,8 +71,9 @@ std::string num_to_string(T pNumber)
 #define MAX_JINT   0x7FFFFFFFL
 #define MAX_JSIZE  MAX_JINT
 
+// TODO: Clean up those marcos. Casting with marcos reduces the readability, and it is actually breaking the C++ type
+// conversion. e.g.: You cannot cast a pointer with S64 below.
 // Helper macros for better readability
-// Use S64() when logging
 #define S(x)    static_cast<size_t>(x)
 #define B(x)    static_cast<bool>(x)
 #define S64(x)  static_cast<int64_t>(x)
@@ -86,8 +83,6 @@ std::string num_to_string(T pNumber)
 #define Q(x)    reinterpret_cast<realm::Query*>(x)
 #define ROW(x)  reinterpret_cast<realm::Row*>(x)
 #define HO(T, ptr) reinterpret_cast<realm::SharedGroup::Handover <T>* >(ptr)
-#define SC(ptr) reinterpret_cast<realm::sync::Client*>(ptr)
-#define SS(ptr) reinterpret_cast<JniSession*>(ptr)
 
 // Exception handling
 enum ExceptionKind {
@@ -120,6 +115,7 @@ jclass GetClass(JNIEnv* env, const char* classStr);
 
 #define TABLE_VALID(env,ptr)    TableIsValid(env, ptr)
 #define ROW_VALID(env,ptr)      RowIsValid(env, ptr)
+#define QUERY_VALID(env, ptr)   QueryIsValid(env, ptr)
 
 #if CHECK_PARAMETERS
 
@@ -187,7 +183,7 @@ inline bool TableIsValid(JNIEnv* env, T* objPtr)
 
     }
     if (!valid) {
-        realm::jni_util::Log::e("Table %1 is no longer attached!", VOID_PTR(objPtr));
+        realm::jni_util::Log::e("Table %1 is no longer attached!", reinterpret_cast<int64_t>(objPtr));
         ThrowException(env, IllegalState, "Table is no longer valid to operate on.");
     }
     return valid;
@@ -197,11 +193,17 @@ inline bool RowIsValid(JNIEnv* env, realm::Row* rowPtr)
 {
     bool valid = (rowPtr != NULL && rowPtr->is_attached());
     if (!valid) {
-        realm::jni_util::Log::e("Row %1 is no longer attached!", VOID_PTR(rowPtr));
+        realm::jni_util::Log::e("Row %1 is no longer attached!", reinterpret_cast<int64_t>(rowPtr));
         ThrowException(env, IllegalState, "Object is no longer valid to operate on. Was it deleted by another thread?");
     }
     return valid;
 }
+
+inline bool QueryIsValid(JNIEnv* env, realm::Query* query)
+{
+    return TableIsValid(env, query->get_table().get());
+}
+
 
 // Requires an attached Table
 template <class T>
@@ -493,6 +495,21 @@ public:
         , m_releaseMode(JNI_ABORT) {
     }
 
+    JniLongArray(JniLongArray& other) = delete;
+
+    JniLongArray(JniLongArray&& other)
+            : m_env(other.m_env)
+            , m_javaArray(other.m_javaArray)
+            , m_arrayLength(other.m_arrayLength)
+            , m_array(other.m_array)
+            , m_releaseMode(other.m_releaseMode)
+    {
+        other.m_env = nullptr;
+        other.m_javaArray = nullptr;
+        other.m_arrayLength = 0;
+        other.m_array = nullptr;
+    }
+
     ~JniLongArray()
     {
         if (m_array) {
@@ -521,11 +538,47 @@ public:
     }
 
 private:
-    JNIEnv*    const m_env;
-    jlongArray const m_javaArray;
-    jsize      const m_arrayLength;
-    jlong*     const m_array;
-    jint             m_releaseMode;
+    JNIEnv*    m_env;
+    jlongArray m_javaArray;
+    jsize      m_arrayLength;
+    jlong*     m_array;
+    jint       m_releaseMode;
+};
+
+template <typename T, typename J>
+class JniArrayOfArrays {
+public:
+    JniArrayOfArrays(JNIEnv* env, jobjectArray javaArray)
+            : m_env(env)
+            , m_javaArray(javaArray)
+            , m_arrayLength(javaArray == nullptr ? 0 : env->GetArrayLength(javaArray))
+    {
+        for (int i = 0; i < m_arrayLength; ++i) {
+            // No type checking. Internal use only.
+            J j_array = static_cast<J>(env->GetObjectArrayElement(m_javaArray, i));
+            m_array.push_back(T(env, j_array));
+        }
+    }
+
+    ~JniArrayOfArrays()
+    {
+    }
+
+    inline jsize len() const noexcept
+    {
+        return m_arrayLength;
+    }
+
+    inline T& operator[](const int index) noexcept
+    {
+        return m_array[index];
+    }
+
+private:
+    JNIEnv* const m_env;
+    jobjectArray const m_javaArray;
+    jsize const m_arrayLength;
+    std::vector<T> m_array;
 };
 
 class JniByteArray {
@@ -643,10 +696,11 @@ extern jmethodID java_lang_float_init;
 extern jclass java_lang_double;
 extern jclass java_lang_string;
 extern jmethodID java_lang_double_init;
-
-// FIXME Move to own library
-extern jclass session_class_ref;
-extern jmethodID session_error_handler;
+extern jclass java_util_date;
+extern jmethodID java_util_date_init;
+#if REALM_ENABLE_SYNC
+extern jclass java_syncmanager;
+#endif
 
 inline jobject NewLong(JNIEnv* env, int64_t value)
 {
@@ -681,10 +735,18 @@ inline realm::Timestamp from_milliseconds(jlong milliseconds)
     return realm::Timestamp(seconds, nanoseconds);
 }
 
+inline jobject NewDate(JNIEnv* env, const realm::Timestamp& ts) {
+    return env->NewObject(java_util_date, java_util_date_init, to_milliseconds(ts));
+}
+
 extern const std::string TABLE_PREFIX;
 
 static inline bool to_bool(jboolean b) {
     return b == JNI_TRUE;
+}
+
+static inline jboolean to_jbool(bool b) {
+    return b?JNI_TRUE:JNI_FALSE;
 }
 
 #endif // REALM_JAVA_UTIL_HPP

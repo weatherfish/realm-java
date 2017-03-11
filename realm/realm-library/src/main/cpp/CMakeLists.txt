@@ -33,18 +33,19 @@ endif()
 string(TOLOWER ${CMAKE_BUILD_TYPE} build_type_FOLDER)
 set(classes_PATH ${CMAKE_SOURCE_DIR}/../../../build/intermediates/classes/${REALM_FLAVOR}/${build_type_FOLDER}/)
 set(classes_LIST
-    io.realm.internal.Table io.realm.internal.TableView io.realm.internal.CheckedRow
+    io.realm.internal.Table io.realm.internal.CheckedRow
     io.realm.internal.LinkView io.realm.internal.Util io.realm.internal.UncheckedRow
     io.realm.internal.TableQuery io.realm.internal.SharedRealm io.realm.internal.TestUtil
     io.realm.log.LogLevel io.realm.log.RealmLog io.realm.Property io.realm.RealmSchema
-    io.realm.RealmObjectSchema io.realm.internal.NativeObjectReference
+    io.realm.RealmObjectSchema io.realm.internal.Collection
+    io.realm.internal.NativeObjectReference io.realm.internal.CollectionChangeSet
 )
 # /./ is the workaround for the problem that AS cannot find the jni headers.
 # See https://github.com/googlesamples/android-ndk/issues/319
 set(jni_headers_PATH /./${PROJECT_BINARY_DIR}/jni_include)
 if (build_SYNC)
     list(APPEND classes_LIST
-        io.realm.SyncManager io.realm.internal.objectserver.ObjectServerSession io.realm.RealmFileUserStore)
+        io.realm.SyncManager io.realm.SyncSession io.realm.RealmFileUserStore)
 endif()
 create_javah(TARGET jni_headers
     CLASSES ${classes_LIST}
@@ -94,7 +95,7 @@ if (NOT EXISTS ${sync_lib_PATH})
     elseif (ARM64_V8A)
         set(sync_lib_PATH ${REALM_CORE_DIST_DIR}/librealm-sync-android-arm64.a)
     else()
-        message(FATAL_ERROR "Cannot find core lib file: ${core_lib_PATH}")
+        message(FATAL_ERROR "Cannot find core lib file: ${sync_lib_PATH}")
     endif()
 endif()
 add_library(lib_realm_sync STATIC IMPORTED)
@@ -153,7 +154,7 @@ file(GLOB jni_SRC
 if (NOT build_SYNC)
     list(REMOVE_ITEM jni_SRC
         ${CMAKE_CURRENT_SOURCE_DIR}/io_realm_SyncManager.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/io_realm_internal_objectserver_ObjectServerSession.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/io_realm_SyncSession.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/io_realm_RealmFileUserStore.cpp)
 endif()
 

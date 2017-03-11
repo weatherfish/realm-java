@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 Realm Inc.
+ * Copyright 2017 Realm Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,22 +14,26 @@
  * limitations under the License.
  */
 
-package io.realm.internal.objectserver;
+package io.realm.entities;
 
-import io.realm.ObjectServerError;
-import io.realm.SyncSession;
+import io.realm.RealmObject;
 
-/**
- * As {@link SyncSession} is modeled as a state machine, this interface describe all
- * possible actions in that machine.
- * <p>
- * All states should implement this interface so all possible permutations of state/actions are covered.
- *
- */
-interface FsmAction {
-    void onStart();
-    void onBind();
-    void onUnbind();
-    void onStop();
-    void onError(ObjectServerError error);
+public class DefaultValueFromOtherConstructor extends RealmObject {
+
+    public static final String CLASS_NAME = "DefaultValueOfField";
+    public static String FIELD_LONG = "fieldLong";
+
+    private long fieldLong;
+
+    public DefaultValueFromOtherConstructor() {
+        this(42);
+    }
+
+    public DefaultValueFromOtherConstructor(long fieldLong) {
+        this.fieldLong = fieldLong;
+    }
+
+    public long getFieldLong() {
+        return fieldLong;
+    }
 }
