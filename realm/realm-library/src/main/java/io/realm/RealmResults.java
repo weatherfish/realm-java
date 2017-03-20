@@ -20,7 +20,10 @@ package io.realm;
 import android.os.Looper;
 
 import io.realm.internal.Collection;
+import io.realm.internal.Row;
 import io.realm.internal.SortDescriptor;
+import io.realm.internal.Table;
+import io.realm.internal.UncheckedRow;
 import rx.Observable;
 
 /**
@@ -51,6 +54,18 @@ import rx.Observable;
  * @see Realm#executeTransaction(Realm.Transaction)
  */
 public class RealmResults<E extends RealmModel> extends OrderedRealmCollectionImpl<E> {
+    static <T extends RealmModel> RealmResults<T> createBacklinkResults(BaseRealm realm, Row row, Class<T> srcTableType, String srcFieldName) {
+        if (!(row instanceof UncheckedRow)) {
+            throw new IllegalArgumentException("Row is " + row.getClass());
+        }
+        UncheckedRow uncheckedRow = (UncheckedRow) row;
+        Table srcTable = realm.getSchema().getTable(srcTableType);
+        return new RealmResults<T>(
+            realm,
+            Collection.createBacklinksCollection(realm.sharedRealm, uncheckedRow, srcTable, srcFieldName),
+            srcTableType);
+    }
+
 
     RealmResults(BaseRealm realm, Collection collection, Class<E> clazz) {
         super(realm, collection, clazz);
@@ -84,6 +99,7 @@ public class RealmResults<E extends RealmModel> extends OrderedRealmCollectionIm
      * @return {@code true} if the query has completed and the data is available, {@code false} if the query is still
      * running in the background.
      */
+    @Override
     public boolean isLoaded() {
         realm.checkIfValid();
         return collection.isLoaded();
@@ -95,6 +111,7 @@ public class RealmResults<E extends RealmModel> extends OrderedRealmCollectionIm
      *
      * @return {@code true} if it successfully completed the query, {@code false} otherwise.
      */
+    @Override
     public boolean load() {
         // The Collection doesn't have to be loaded before accessing it if the query has not returned.
         // Instead, accessing the Collection will just trigger the execution of query if needed. We add this flag is

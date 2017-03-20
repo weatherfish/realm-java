@@ -200,6 +200,7 @@ public class RealmTests {
                     .directory(folder)
                     .name(REALM_FILE)
                     .build());
+            fail();
         } catch (RealmFileException expected) {
             assertEquals(expected.getKind(), RealmFileException.Kind.PERMISSION_DENIED);
         }
@@ -216,6 +217,7 @@ public class RealmTests {
 
         try {
             Realm.getInstance(new RealmConfiguration.Builder(context).directory(folder).name(REALM_FILE).build());
+            fail();
         } catch (RealmFileException expected) {
             assertEquals(expected.getKind(), RealmFileException.Kind.PERMISSION_DENIED);
         }
@@ -658,7 +660,7 @@ public class RealmTests {
 
     @Test
     public void executeTransaction_canceled() {
-        final AtomicReference<RuntimeException> thrownException = new AtomicReference<>(null);
+        final AtomicReference<RuntimeException> thrownException = new AtomicReference<RuntimeException>(null);
 
         assertEquals(0, realm.where(Owner.class).count());
         try {
@@ -1795,7 +1797,7 @@ public class RealmTests {
             try {
                 realm2 = Realm.getInstance(configFactory.createConfiguration(ENCRYPTED_REALM, key2));
             } catch (Exception e) {
-                fail();
+                fail("Unexpected exception: " + e);
             } finally {
                 if (realm2 != null) {
                     realm2.close();
@@ -2474,7 +2476,7 @@ public class RealmTests {
             fieldObjectValue.setFieldInt(fieldObjectIntValue);
             obj.setFieldObject(fieldObjectValue);
 
-            final RealmList<RandomPrimaryKey> list = new RealmList<>();
+            final RealmList<RandomPrimaryKey> list = new RealmList<RandomPrimaryKey>();
             final RandomPrimaryKey listItem = new RandomPrimaryKey();
             listItem.setFieldInt(fieldListIntValue);
             list.add(listItem);
@@ -2529,7 +2531,7 @@ public class RealmTests {
             fieldObjectValue.setFieldInt(RandomPrimaryKey.FIELD_INT_DEFAULT_VALUE + 1);
             obj.setFieldObject(fieldObjectValue);
 
-            final RealmList<RandomPrimaryKey> list = new RealmList<>();
+            final RealmList<RandomPrimaryKey> list = new RealmList<RandomPrimaryKey>();
             final RandomPrimaryKey listItem = new RandomPrimaryKey();
             listItem.setFieldInt(RandomPrimaryKey.FIELD_INT_DEFAULT_VALUE + 2);
             list.add(listItem);
@@ -3554,7 +3556,7 @@ public class RealmTests {
                 Realm realm = Realm.getInstance(realmConfig);
                 bgRealm.set(realm);
                 bgRealmOpened.countDown();
-                bgRealmWaitResult.set(new Boolean(realm.waitForChange()));
+                bgRealmWaitResult.set(realm.waitForChange());
                 realm.close();
                 bgRealmClosed.countDown();
             }
@@ -3572,7 +3574,7 @@ public class RealmTests {
         // Now we'll stop realm from waiting.
         bgRealm.get().stopWaitForChange();
         TestHelper.awaitOrFail(bgRealmClosed);
-        assertFalse(bgRealmWaitResult.get().booleanValue());
+        assertFalse(bgRealmWaitResult.get());
     }
 
     @Test
@@ -3821,7 +3823,7 @@ public class RealmTests {
                 return name.matches("realm_.*cv");
             }
         });
-        assertEquals(1, files.length);
+        assertEquals(2, files.length);
 
         // Tests if it works when the namedPipeDir and the named pipe files already exist.
         realmOnExternalStorage = Realm.getInstance(config);

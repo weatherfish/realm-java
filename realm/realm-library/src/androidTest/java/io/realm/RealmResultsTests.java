@@ -128,10 +128,10 @@ public class RealmResultsTests extends CollectionTests {
         for (CollectionMutatorMethod method : CollectionMutatorMethod.values()) {
             try {
                 switch (method) {
-                    case ADD_OBJECT: collection.add(new AllTypes());
+                    case ADD_OBJECT: collection.add(new AllTypes()); break;
                     case ADD_ALL_OBJECTS: collection.addAll(Collections.singletonList(new AllTypes())); break;
                     case CLEAR: collection.clear(); break;
-                    case REMOVE_OBJECT: collection.remove(new AllTypes());
+                    case REMOVE_OBJECT: collection.remove(new AllTypes()); break;
                     case REMOVE_ALL: collection.removeAll(Collections.singletonList(new AllTypes())); break;
                     case RETAIN_ALL: collection.retainAll(Collections.singletonList(new AllTypes())); break;
 
@@ -1136,7 +1136,7 @@ public class RealmResultsTests extends CollectionTests {
                 fieldObjectValue.setFieldInt(fieldObjectIntValue);
                 obj.setFieldObject(fieldObjectValue);
 
-                final RealmList<RandomPrimaryKey> list = new RealmList<>();
+                final RealmList<RandomPrimaryKey> list = new RealmList<RandomPrimaryKey>();
                 final RandomPrimaryKey listItem = new RandomPrimaryKey();
                 listItem.setFieldInt(fieldListIntValue);
                 list.add(listItem);
